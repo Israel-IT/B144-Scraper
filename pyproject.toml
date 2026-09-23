@@ -1,0 +1,14 @@
+[project]
+name = "b144-scraper"
+version = "0.1.0"
+description = "Scrape every business category on b144.co.il into one Excel file"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "scrapling[fetchers]>=0.3",
+    "streamlit>=1.40",
+    "xlsxwriter>=3.2",
+]
+
+[tool.uv]
+package = false
