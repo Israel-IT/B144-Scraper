@@ -67,6 +67,7 @@ class Runner:
         self._active: dict[str, str] = {}  # categories in progress: cat_code -> name
         self._active_lock = threading.Lock()
         self._details: DetailQueue | None = None
+        self._client: Client | None = None
 
     # ---- control ------------------------------------------------------------------
     def is_running(self) -> bool:
@@ -142,7 +143,10 @@ class Runner:
         running = self.is_running()
         run_id = self.state.get("run_id")
         run = self.store.run(run_id) if run_id else self.store.latest_run()
-        out = {"running": running, "phase": self.state["phase"] if running else "idle",
+        phase = self.state["phase"] if running else "idle"
+        if running and self._stop.is_set():
+            phase = "stopping"
+        out = {"running": running, "phase": phase,
                "message": self.state.get("message", ""), "run": run, "eta": None}
         if run:
             c = self.store.counters(run["id"])
@@ -150,11 +154,11 @@ class Runner:
             out["scope"] = self.store.run_scope(run["id"])
             lp = self.store.listing_progress(run["id"])
             out["listings_done"], out["listings_expected"] = lp["done"], lp["expected"]
-            phase = self.state["phase"]
-            if running and phase == "scraping":
+            if running and phase in ("scraping", "stopping"):
                 out["work_done"], out["work_expected"] = self._work_units(run)
-                out["eta"] = self._eta(out["work_done"], out["work_expected"])
-                out["message"] = self._scraping_message()
+                if phase == "scraping":
+                    out["eta"] = self._eta(out["work_done"], out["work_expected"])
+                    out["message"] = self._scraping_message()
             elif running and phase == "details":
                 out["eta"] = self._eta(c["details_done"], c["businesses"])
         out["categories_known"] = len(self.store.categories())
@@ -170,11 +174,19 @@ class Runner:
         details = self._details
         if details is not None and details.pending():
             parts.append(f"{details.pending():,} detail pages queued")
+        client = self._client
+        if client is not None:
+            t = client.throttle.state()
+            if t["paused_for"] > 0:
+                parts.append(f"⚠ the site is limiting us: paused {t['paused_for']:.0f} s more, then "
+                             f"{t['limit']} of {t['max']} concurrent requests")
+            elif t["limit"] < t["max"]:
+                parts.append(f"{t['limit']} of {t['max']} concurrent requests (speeding up while the site allows)")
         return " · ".join(parts)
 
     # ---- workers ------------------------------------------------------------------------------
     def _refresh_work(self, concurrency, delay):
-        client = Client(self._stop, delay=delay)
+        client = Client(self._stop, delay=delay, max_active=concurrency)
         pool = ThreadPoolExecutor(max(1, concurrency), thread_name_prefix="b144-worker")
         try:
             self._ensure_categories(client, pool, force=True)
@@ -205,8 +217,9 @@ class Runner:
         store = self.store
         run = store.run(run_id)
         self.state.update(run_id=run_id)
-        client = Client(self._stop, delay=(run["delay_min"], run["delay_max"]))
         conc = max(1, int(run["concurrency"] or DEFAULT_CONCURRENCY))
+        client = Client(self._stop, delay=(run["delay_min"], run["delay_max"]), max_active=conc)
+        self._client = client
         # One pool for all requests of the run (sessions are per worker thread, so they and their tokens are
         # reused). Categories run side by side on a second, small pool: each category thread only reads its
         # landing page and then waits on its own region / city / detail requests in the shared pool.
@@ -269,10 +282,16 @@ class Runner:
             log.error("Run %d crashed: %s\n%s", run_id, e, traceback.format_exc())
         finally:
             self._stop.set()  # make any worker still in flight bail out quickly
-            pool.shutdown(wait=True, cancel_futures=True)
-            cat_pool.shutdown(wait=True, cancel_futures=True)
+            # Order matters. Category threads wait on the pool's futures, and shutdown(cancel_futures=True) marks
+            # queued futures cancelled without waking anyone waiting on them (Python only notifies waiters when a
+            # worker dequeues the item), so those threads would wait forever: the "Stop froze" bug. So let the
+            # category threads finish first. The worker pool then drains normally; with the stop event set, every
+            # queued request raises StopRequested at once.
+            cat_pool.shutdown(wait=True, cancel_futures=True)  # only not-yet-started categories; nobody waits on them
+            pool.shutdown(wait=True)
             client.close()
             self._details = None
+            self._client = None
             self.state.update(phase="idle", message="")
 
     def _category(self, client: Client, run: dict, cat: dict, pool: ThreadPoolExecutor,

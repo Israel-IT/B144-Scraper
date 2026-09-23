@@ -29,11 +29,15 @@ close the terminal or the browser tab; reopen <http://localhost:8501> any time.
 ## Using the page
 
 * **Sidebar**: leave *All categories* on, or switch it off and pick categories (type to search).
-  *Concurrent requests* (1–100, default 20) is the speed control. Listings and business details share
-  these requests, and several categories run at once. The random delay per request is 0.3–0.8 s by default.
+  *Concurrent requests* (1–100, default 20) is the most requests allowed in flight at once. Listings and business
+  details share them, and several categories run at once. The scraper starts at 20 and speeds up towards
+  the slider value while the site keeps up. When the site pushes back, it halves the speed and pauses (see below).
+  Above ~40 the site just answers more slowly, so it isn't faster, only riskier. The random delay per request
+  is 0.3–0.8 s by default.
   Every run fetches each business's page (mobile, other phones, zip, hours, languages) and runs the city
   sweep ([Coverage](#coverage)). The UI has no switches for these; the CLI still does.
-* **Run** starts a fresh run. **Stop** finishes the in-flight requests and pauses.
+* **Run** starts a fresh run. **Stop** lets the in-flight requests finish (up to 30 s; the page shows
+  "Stopping…") and pauses.
   **Resume** continues an unfinished run from the next page. That includes a run that was cut off by a
   restart or a crash: the page then shows "Unfinished run found — Resume".
 * **Download Excel** appears when a run finishes. **Export what I have now** writes a partial file
@@ -96,11 +100,14 @@ No browser is needed.
 | City sweep | for regions whose count on the landing page is higher than their region list: each city page `/{slug}/{city}/` of that region (the region's city list + index cities), top "serves this city" group only |
 | Details | `/b144_sip/{MID}/` → `initialMemberPageData` |
 
-With many requests in flight the site sometimes answers slowly (a few 30 s timeouts), and those requests are
-retried. On HTTP 403 or 429, every worker pauses for the backoff time, not only the one that got it.
-If the site starts serving bot challenges (HTML with no `__NEXT_DATA__`), the scraper re-primes the
-session. If that fails it tries Scrapling's `StealthyFetcher`, which needs a browser: `uv run scrapling install`.
-If it still can't get through, it pauses the run with a message, and you can Resume later.
+**When the site pushes back** (HTTP 403/429, reset connections or a bot-challenge page, which is what B144's
+firewall does when requests come too fast), every worker pauses together. The pause is 15 s at first and doubles
+up to 5 min while the push-back lasts, and the speed is halved. The page shows this ("the site is limiting us…").
+If nothing gets through for 30 minutes, the run pauses with a message; wait an hour and press Resume. At a fixed 100
+concurrent requests the firewall blocked this IP for ~12 minutes, which is why the speed now adapts. Slow answers
+(30 s timeouts) are retried up to 5 times.
+A bot challenge (HTML with no `__NEXT_DATA__`) counts as push-back too. The session gets fresh cookies, and
+every third time Scrapling's `StealthyFetcher` re-primes it, if its browser is installed (`uv run scrapling install`).
 
 Code map: `b144/http.py` (session, retries, token), `parse.py`, `categories.py`, `listings.py`,
 `details.py`, `store.py` (SQLite), `export.py` (Excel), `runner.py` (background pipeline), `app.py` (UI).

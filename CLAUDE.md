@@ -16,6 +16,7 @@ Working rules:
   `running` run as `interrupted`.
 - The UI process keeps the imported code until it restarts: `./run.sh`, then Resume in the page.
 - `data/` is gitignored: SQLite state, Excel outputs, logs. Business details are cached per MID across runs.
-- Default is 20 concurrent requests (max 100) with a 0.3–0.8 s delay, and a 403/429 pauses all workers (D29).
+- Concurrency 1–100 (default 20) is a ceiling: `http.Throttle` starts at 20, adapts, and pauses everyone on push-back (D35).
+- Stopping: category threads first, then the worker pool without `cancel_futures`; see D33 before touching `Runner._work`'s `finally`.
   Watch `data/scrape.log` for WAF signs (pages without `__NEXT_DATA__`).
 - Record new decisions in `docs/DECISIONS.md` and new test results in `docs/VERIFICATION.md`.

@@ -81,9 +81,26 @@ Tested with the CLI on a copy of the database (`--db scratchpad/test.sqlite`), s
   for run 9. ✅
 * Page after restart: "Run #7 · 1 category: עורכי דין" above the Excel section, with the warning. ✅
 
+## 11. Errors at concurrency 100 and the Stop freeze (D33–D37)
+* Run #9 (all categories, 100 concurrent, 0.3–0.5 s): 1,177 "Connection reset by peer" between 16:38 and 16:40, then
+  a plain `curl` to the home page was reset too, so the IP was blocked. It was lifted ~12 min later (HTTP 200).
+  Stop at 16:40:23 logged "stopped", but the runner thread never exited, so the page kept showing "Working on 6 categories".
+* Offline tests in the scratchpad, with fake sessions:
+  * DetailQueue add() racing pool shutdown: the old code **deadlocked** on trial 0, the new code finished 5 of 5. ✅
+  * Whole runner, fake site, one region serving a bot challenge that never clears: before D33 the runner thread
+    was still alive after 45 s; after it, the run pauses with a message and the thread exits in 11–20 s (4 of 4). ✅
+  * Whole runner, Stop at 4 s: `stopped`, and the thread exits in under 1 s (3 of 3). ✅ A normal 30-category run
+    finishes and exports, with the throttle climbing 20 → 100. ✅
+  * Throttle vs a fake site that resets above 12 in flight: halves 20 → 10 → 6 and pauses 15 s each time. It
+    settles below the ceiling, and Stop during a pause takes 0.5 s. ✅ Give-up raises WafBlocked. ✅
+  * Starvation found and fixed: at limit 1, the thread that just released a slot kept winning it back. The
+    queue is now first-come-first-served.
+* Live, on a copy of the DB: 25 categories at concurrency 100 for 3 min. The limit climbed 20 → 93 with no
+  push-back and 0 errors, at ~19 detail pages/s (flat from ~40 upward). Stop took 5.9 s. ✅
+
 ## Not verified
 * The StealthyFetcher fallback: the site never served a challenge, and the browser isn't installed.
 * Double-clicking `Run B144 Scraper.command` in Finder (only its syntax was checked).
 * `run.bat` / `run.ps1` on Windows.
-* Concurrency 100.
+* A real firewall block with the adaptive throttle. The live test never triggered push-back; only the offline fakes did.
 * A full all-categories run (estimated at 3–6 days; see [DECISIONS.md](DECISIONS.md#runtime-estimate-for-planning-a-full-run)).

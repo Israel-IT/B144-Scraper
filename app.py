@@ -61,10 +61,11 @@ with st.sidebar:
         st.caption("The category list hasn't been built yet. It's built automatically on the first Run "
                    "(about 2 minutes), or click **Refresh category list**.")
     concurrency = st.slider("Concurrent requests", 1, MAX_CONCURRENCY, DEFAULT_CONCURRENCY, disabled=running,
-                            help="How many requests run at the same time. Listings and business details share "
-                                 "them, and several categories are worked on at once. Higher is faster but makes "
-                                 "the site more likely to block the scraper; if it slows you down (403/429), "
-                                 "every worker pauses together.")
+                            help="The most requests that may run at the same time. Listings and business details "
+                                 "share them, and several categories are worked on at once. The scraper starts at "
+                                 "20 and speeds up towards this number while the site keeps up. When the site "
+                                 "pushes back (it resets connections or answers 403/429), it halves the speed and "
+                                 "pauses. 20–40 has been reliable; 100 got blocked within minutes.")
     delay = st.slider("Random delay per request (s)", 0.0, 3.0, (0.3, 0.8), step=0.1, disabled=running)
     if st.button("Refresh category list", disabled=running, width="stretch"):
         R.refresh_categories(concurrency, delay)
@@ -129,12 +130,15 @@ def progress_panel():
         elif phase == "details":
             frac = s["details_done"] / s["businesses"] if s.get("businesses") else 0
             text = f"Fetching business details — {s['details_done']:,}/{s['businesses']:,}"
+        elif phase == "stopping":
+            frac = s["work_done"] / s["work_expected"] if s.get("work_expected") else 0
+            text = "Stopping — letting the requests in flight finish (up to 30 s)…"
         elif phase == "export":
             frac, text = 1.0, "Writing Excel…"
         else:
             frac, text = 0.0, s.get("message") or "Starting…"
         st.progress(min(1.0, frac), text=text)
-        if s.get("message") and phase in ("scraping", "categories"):
+        if s.get("message") and phase in ("scraping", "categories", "stopping"):
             st.caption(s["message"])
     elif run:
         st.info(f"Last run #{run['id']}: **{run['status']}**"

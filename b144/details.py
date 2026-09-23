@@ -137,6 +137,8 @@ class DetailQueue:
     def add(self, mids, retry_failed: bool = False) -> list[Future]:
         """Queue the MIDs that aren't fetched yet. Returns the futures covering them (new and already queued)."""
         out = []
+        if self.client.stop_event.is_set():
+            return out
         with self._lock:
             for mid in mids:
                 mid = str(mid or "")
@@ -145,7 +147,10 @@ class DetailQueue:
                 fut = self._inflight.get(mid)
                 if fut is None:
                     self._failed.discard(mid)
-                    fut = self.pool.submit(self._work, mid)
+                    try:
+                        fut = self.pool.submit(self._work, mid)
+                    except RuntimeError:  # pool already shut down: the run is stopping
+                        raise StopRequested() from None
                     self._inflight[mid] = fut
                     fut.add_done_callback(lambda f, m=mid: self._finished(m, f))
                 out.append(fut)
@@ -160,10 +165,14 @@ class DetailQueue:
         return status
 
     def _finished(self, mid: str, fut: Future):
+        # A future cancelled by pool.shutdown(cancel_futures=True) runs this callback while the pool holds its
+        # shutdown lock. Taking self._lock then would deadlock against add(), which holds self._lock while it
+        # waits for that same pool lock in submit(). The runner no longer shuts the worker pool down that way
+        # (see Runner._work), but cancelled work needs no bookkeeping anyway, so stay out of the lock.
+        if fut.cancelled():
+            return
         with self._lock:
             self._inflight.pop(mid, None)
-            if fut.cancelled():
-                return
             err = fut.exception()
             if err is None:
                 self._done.add(mid)
