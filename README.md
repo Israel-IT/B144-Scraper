@@ -46,6 +46,9 @@ and a later run reuses them.
 
 ## Excel layout
 
+The file name says what the run covered: `b144_all-categories_<date>.xlsx`, `b144_<category>_<date>.xlsx` or
+`b144_<n>-categories_<date>.xlsx`. The page shows the same label above the Download button.
+
 * **Businesses**: one row per (category, business); frozen header, filters, right-to-left.
   Category · Category code · Business name · Main phone · Mobile phone · Other phones ·
   Email · Fax · WhatsApp · Website · Facebook · Instagram · Other links · Street · Street no. · City · Zip ·

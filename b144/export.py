@@ -1,6 +1,7 @@
 """Excel export: Businesses (one row per category+business), Summary, Run info. Right-to-left sheets."""
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -82,12 +83,21 @@ def _num(value):
         return None
 
 
-def default_path() -> Path:
-    return DATA_DIR / f"b144_businesses_{datetime.now():%Y%m%d_%H%M}.xlsx"
+def default_path(store: Store, run_id: int) -> Path:
+    """The file name says what the run covered: b144_all-categories_…, b144_עורכי-דין_…, b144_3-categories_…."""
+    run = store.run(run_id) or {}
+    scope = store.run_scope(run_id)
+    if run.get("all_categories"):
+        what = "all-categories"
+    elif scope["count"] == 1:
+        what = re.sub(r"[^\w-]+", "-", scope["names"][0]).strip("-") or "1-category"
+    else:
+        what = f"{scope['count']}-categories"
+    return DATA_DIR / f"b144_{what}_{datetime.now():%Y%m%d_%H%M}.xlsx"
 
 
 def export_run(store: Store, run_id: int, path: Path | None = None) -> Path:
-    path = Path(path or default_path())
+    path = Path(path or default_path(store, run_id))
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = store.reader()
     run = dict(conn.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone())
@@ -179,6 +189,7 @@ def export_run(store: Store, run_id: int, path: Path | None = None) -> Path:
         ("Finished", run.get("finished_at") or "(not finished — partial export)"),
         ("Status", run.get("status") or ""),
         ("Exported at", datetime.now().isoformat(timespec="seconds")),
+        ("Categories", store.run_scope_label(run_id)),
         ("Categories in run", str(len(progress))),
         ("Categories completed", str(done)),
         ("Rows (category × business)", str(n)),

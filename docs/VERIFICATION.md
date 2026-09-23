@@ -73,6 +73,14 @@ Tested with the CLI on a copy of the database (`--db scratchpad/test.sqlite`), s
   No 403/429, no WAF challenges.
 * `run.ps1` passes the PowerShell 7 parser (`Parser.ParseFile`, no errors). It has **not been run on Windows**.
 
+## 10. Excel scope labels (D32)
+* Run #7's Excel held only עורכי דין (11,063 rows, 1 cat_code). That matches the run: `all_categories=0` with 1
+  category, started from the CLI. Runs #1–#9 were all 1–3 category tests, and no run had `all_categories=1`.
+* File names: run 7 → `b144_עורכי-דין_…`, run 4 → `b144_3-categories_…`, a new all-categories run →
+  `b144_all-categories_…` (1,430). The Run info sheet has "Categories: 2 categories: אינסטלטורים, שיפוצים"
+  for run 9. ✅
+* Page after restart: "Run #7 · 1 category: עורכי דין" above the Excel section, with the warning. ✅
+
 ## Not verified
 * The StealthyFetcher fallback: the site never served a challenge, and the browser isn't installed.
 * Double-clicking `Run B144 Scraper.command` in Finder (only its syntax was checked).

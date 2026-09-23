@@ -30,9 +30,16 @@ def fmt_duration(seconds) -> str:
     return f"{h}h {m:02d}m" if h else f"{m}m {s:02d}s"
 
 
-def download_button(path: str, label: str, key: str):
+def download_button(path: str, label: str, key: str, run_id: int | None = None):
     p = Path(path)
     if p.exists():
+        if run_id is not None:
+            scope = store.run_scope_label(run_id)
+            st.caption(f"Run #{run_id} · **{scope}**")
+            run = store.run(run_id) or {}
+            if not run.get("all_categories"):
+                st.warning(f"This Excel has only {scope}, not every category. For the whole site, switch on "
+                           "**All categories** and press **Run**.", icon=":material/filter_alt:")
         st.download_button(label, data=lambda: p.read_bytes(), file_name=p.name, mime=XLSX_MIME, key=key,
                            type="primary", icon=":material/download:")
         st.caption(f"`{p}` · {p.stat().st_size / 1_048_576:.1f} MB")
@@ -84,10 +91,12 @@ if buttons.button("Resume", icon=":material/replay:", disabled=running or not un
 
 if unfinished:
     done = store.counters(unfinished["id"])
-    st.warning(f"Unfinished run found — Resume. Run #{unfinished['id']} ({unfinished['status']}), started "
+    st.warning(f"Unfinished run found — Resume. Run #{unfinished['id']} covers "
+               f"**{store.run_scope_label(unfinished['id'])}** ({unfinished['status']}), started "
                f"{unfinished['started_at']}: {done['cats_done']}/{done['cats_total']} categories, "
                f"{done['listings']:,} rows so far. {unfinished.get('note') or ''}  \n"
-               "Pressing **Run** instead starts a fresh run and discards this one's progress.",
+               "Resume continues that run as it was started; the sidebar settings don't change it. Pressing "
+               "**Run** instead starts a fresh run with the sidebar settings and discards this one's progress.",
                icon=":material/pause_circle:")
 
 
@@ -151,12 +160,12 @@ def progress_panel():
     with right:
         st.subheader("Excel")
         if run and not s["running"] and run.get("output_path") and Path(run["output_path"]).exists():
-            download_button(run["output_path"], "Download Excel", key=f"dl-{run['output_path']}")
+            download_button(run["output_path"], "Download Excel", key=f"dl-{run['output_path']}", run_id=run["id"])
         elif not s["running"]:
             last = store.last_output()
             if last and Path(last["output_path"]).exists():
-                st.caption(f"From run #{last['id']}:")
-                download_button(last["output_path"], "Download Excel", key=f"dl-{last['output_path']}")
+                download_button(last["output_path"], "Download Excel", key=f"dl-{last['output_path']}",
+                                run_id=last["id"])
         if run:
             if st.button("Export what I have now", icon=":material/table_view:",
                          help="Writes an Excel with everything collected so far (the run keeps going)."):
@@ -164,7 +173,7 @@ def progress_panel():
                     st.session_state["partial_export"] = str(R.export_now(run["id"]))
             partial = st.session_state.get("partial_export")
             if partial:
-                download_button(partial, "Download partial Excel", key=f"dlp-{partial}")
+                download_button(partial, "Download partial Excel", key=f"dlp-{partial}", run_id=run["id"])
         if run and s["errors"]:
             with st.expander(f"Recent errors ({s['errors']})"):
                 for e in store.errors(run["id"], 20):

@@ -308,6 +308,18 @@ class Store:
         total = self._one("SELECT COUNT(*) n FROM cat_progress WHERE run_id=?", (run_id,))["n"]
         return {"count": total, "names": [r["name"] for r in rows]}
 
+    def run_scope_label(self, run_id) -> str:
+        """'all categories', '1 category: עורכי דין', '3 categories: a, b, c' or '40 categories'."""
+        run = self.run(run_id) or {}
+        scope = self.run_scope(run_id)
+        n = scope["count"]
+        if run.get("all_categories"):
+            return f"all categories ({n:,})" if n else "all categories"
+        label = f"{n:,} categor{'y' if n == 1 else 'ies'}"
+        if 0 < n <= 3:
+            label += ": " + ", ".join(scope["names"])
+        return label
+
     def listing_progress(self, run_id) -> dict:
         """Progress in listings: done categories count their site total, the category in progress counts the
         rows fetched so far, and categories not reached yet are estimated from the average site total."""
